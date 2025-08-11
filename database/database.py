@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Session
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from .models import Base
 from config import DATABASE_URL, SYNC_DATABASE_URL
 
@@ -38,11 +38,45 @@ def init_db_sync():
     """Синхронная инициализация базы данных (для обратной совместимости)"""
     Base.metadata.create_all(bind=sync_engine)
 
-def get_db() -> Session:
-    """Синхронное получение сессии базы данных (для обратной совместимости)"""
+def get_db_session() -> Session:
+    """Синхронное получение сессии базы данных (генератор для FastAPI)"""
     db = SessionLocal()
     try:
         yield db
+    finally:
+        db.close()
+
+@contextmanager
+def get_db():
+    """Синхронное получение сессии базы данных (контекстный менеджер)"""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+def get_db_simple():
+    """Простое получение сессии БД (для замены next(get_db()))"""
+    return SessionLocal()
+
+# Создаем простую функцию для замены next(get_db())
+@contextmanager
+def next_get_db():
+    """Эмуляция next(get_db()) для быстрого исправления"""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+def safe_db_operation(operation_func):
+    """Безопасное выполнение операции с БД"""
+    db = SessionLocal()
+    try:
+        return operation_func(db)
+    except Exception as e:
+        db.rollback()
+        raise e
     finally:
         db.close()
 

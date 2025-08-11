@@ -10,7 +10,7 @@ from utils.keyboards import (
 )
 from services.mailing_service import mailing_service
 from database.models import Account, Group, Mailing
-from database.database import get_db
+from database.database import get_db, next_get_db
 from config import ADMIN_IDS, MAX_PHOTO_SIZE
 
 router = Router()
@@ -19,6 +19,7 @@ class MailingSetup(StatesGroup):
     waiting_text = State()
     waiting_min_interval = State()
     waiting_max_interval = State()
+    waiting_photo_choice = State()
     waiting_photo = State()
 
 @router.callback_query(F.data.startswith("start_mailing_all:"))
@@ -95,12 +96,16 @@ async def process_min_interval(message: Message, state: FSMContext):
                 "📷 Хотите прикрепить фото к сообщению?",
                 reply_markup=get_photo_attachment_keyboard()
             )
+            await state.set_state(MailingSetup.waiting_photo_choice)
         else:  # random
             await message.answer("⏰ Максимальный интервал (мин):")
             await state.set_state(MailingSetup.waiting_max_interval)
             
     except ValueError:
         await message.answer("❌ Введите число. Попробуйте снова:")
+    except Exception as e:
+        await message.answer("❌ Произошла ошибка. Попробуйте начать заново.")
+        await state.clear()
 
 @router.message(MailingSetup.waiting_max_interval)
 async def process_max_interval(message: Message, state: FSMContext):
@@ -119,13 +124,18 @@ async def process_max_interval(message: Message, state: FSMContext):
             return
         
         await state.update_data(max_interval=max_interval)
+        
         await message.answer(
             "📷 Хотите прикрепить фото к сообщению?",
             reply_markup=get_photo_attachment_keyboard()
         )
-        
+        await state.set_state(MailingSetup.waiting_photo_choice)
+            
     except ValueError:
         await message.answer("❌ Введите число. Попробуйте снова:")
+    except Exception as e:
+        await message.answer("❌ Произошла ошибка. Попробуйте начать заново.")
+        await state.clear()
 
 
 
@@ -248,7 +258,7 @@ async def stop_mailing_all(callback: CallbackQuery):
     """Останавливает рассылку аккаунта"""
     account_id = int(callback.data.split(":")[1])
     
-    with next(get_db()) as db:
+    with next_get_db() as db:
         active_mailings = db.query(Mailing).filter(
             Mailing.account_id == account_id,
             Mailing.is_active == True

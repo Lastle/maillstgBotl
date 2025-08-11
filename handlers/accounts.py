@@ -7,7 +7,7 @@ from utils.keyboards import get_main_menu_keyboard, get_account_menu_keyboard, g
 from services.auth_service import auth_service
 from services.mailing_service import mailing_service
 from database.models import Account, Group, Mailing
-from database.database import get_db
+from database.database import get_db, SessionLocal
 from config import ADMIN_IDS
 
 router = Router()
@@ -119,13 +119,16 @@ async def process_password(message: Message, state: FSMContext):
 @router.callback_query(F.data == "my_accounts")
 async def show_accounts(callback: CallbackQuery):
     """Показывает список аккаунтов"""
-    with next(get_db()) as db:
+    db = SessionLocal()
+    try:
         accounts = db.query(Account).filter(Account.is_active == True).all()
-    
-    if not accounts:
-        text = "👤 Мои аккаунты\n\nУ вас нет добавленных аккаунтов."
-        await callback.message.edit_text(text, reply_markup=get_back_keyboard())
-    else:
+        
+        if not accounts:
+            text = "👤 Мои аккаунты\n\nУ вас нет добавленных аккаунтов."
+            await callback.message.edit_text(text, reply_markup=get_back_keyboard())
+            return
+        
+        # Если есть аккаунты, показываем их
         text = "👤 Мои аккаунты:\n\n"
         for i, account in enumerate(accounts, 1):
             text += f"{i}. {account.name} ({account.phone})\n"
@@ -147,6 +150,11 @@ async def show_accounts(callback: CallbackQuery):
         builder.adjust(1)
         
         await callback.message.edit_text(text, reply_markup=builder.as_markup())
+        
+    except Exception as e:
+        await callback.answer(f"❌ Ошибка БД: {str(e)}", show_alert=True)
+    finally:
+        db.close()
     
     await callback.answer()
 
@@ -155,7 +163,8 @@ async def account_menu(callback: CallbackQuery):
     """Меню конкретного аккаунта"""
     account_id = int(callback.data.split(":")[1])
     
-    with next(get_db()) as db:
+    db = SessionLocal()
+    try:
         account = db.query(Account).filter(Account.id == account_id).first()
         if not account:
             await callback.answer("❌ Аккаунт не найден")
@@ -173,13 +182,18 @@ async def account_menu(callback: CallbackQuery):
             Mailing.is_active == True
         ).count()
         
-        text = f"Меню для аккаунта {account.name}:\n\n"
-        text += f"📊 Массовая рассылка: {'🟢 ВКЛ' if active_mailings > 0 else '🔴 ВЫКЛ'}\n"
-        text += f"👤 Имя: {account.name}\n"
-        text += f"📱 Номер: {account.phone}\n\n"
-        text += f"📋 Список групп:\n{groups_text}"
+        text = f"📱 Аккаунт: {account.name[:20]}...\n\n"
+        text += f"📊 Рассылка: {'🟢 ВКЛ' if active_mailings > 0 else '🔴 ВЫКЛ'}\n"
+        text += f"📱 Номер: {account.phone}\n"
+        text += f"📋 Групп: {len(groups)}"
+        
+        await callback.message.edit_text(text, reply_markup=get_account_menu_keyboard(account_id))
+        
+    except Exception as e:
+        await callback.answer("❌ Ошибка БД", show_alert=True)
+    finally:
+        db.close()
     
-    await callback.message.edit_text(text, reply_markup=get_account_menu_keyboard(account_id))
     await callback.answer()
 
 @router.callback_query(F.data.startswith("delete_account:"))

@@ -9,7 +9,7 @@ from telethon.errors import (
     AuthRestartError
 )
 from database.models import Account
-from database.database import get_db
+from database.database import get_db, next_get_db
 from utils.helpers import validate_phone, validate_code
 from config import AUTH_TIMEOUT
 
@@ -25,7 +25,7 @@ class AuthService:
             return {"success": False, "error": "Неверный формат номера телефона"}
         
         # Проверяем, не авторизован ли уже этот номер
-        with next(get_db()) as db:
+        with next_get_db() as db:
             existing_account = db.query(Account).filter(Account.phone == phone).first()
             if existing_account:
                 return {"success": False, "error": "Этот аккаунт уже добавлен"}
@@ -51,6 +51,7 @@ class AuthService:
                     "phone": phone,
                     "api_id": api_id,
                     "api_hash": api_hash,
+                    "session_name": session_name,
                     "step": "waiting_code",
                     "started_at": asyncio.get_event_loop().time()
                 }
@@ -61,15 +62,28 @@ class AuthService:
                 me = await client.get_me()
                 await client.disconnect()
                 
-                # Сохраняем в базу данных
-                with next(get_db()) as db:
-                    account = Account(
-                        phone=phone,
-                        name=me.first_name or me.username or phone,
-                        api_id=api_id,
-                        api_hash=api_hash
-                    )
-                    db.add(account)
+                # Сохраняем в базу данных (проверяем существование)
+                with next_get_db() as db:
+                    existing_account = db.query(Account).filter(Account.tg_id == str(me.id)).first()
+                    if existing_account:
+                        # Обновляем существующий аккаунт
+                        existing_account.phone = phone
+                        existing_account.name = me.first_name or me.username or phone
+                        existing_account.api_id = str(api_id)
+                        existing_account.api_hash = api_hash
+                        existing_account.session_path = session_name
+                        existing_account.is_active = True
+                    else:
+                        # Создаем новый аккаунт
+                        account = Account(
+                            tg_id=str(me.id),
+                            phone=phone,
+                            name=me.first_name or me.username or phone,
+                            api_id=str(api_id),
+                            api_hash=api_hash,
+                            session_path=session_name
+                        )
+                        db.add(account)
                     db.commit()
                 
                 return {"success": True, "message": "Авторизация прошла успешно!"}
@@ -115,12 +129,14 @@ class AuthService:
             me = await client.get_me()
             
             # Сохраняем в базу данных
-            with next(get_db()) as db:
+            with next_get_db() as db:
                 account = Account(
+                    tg_id=str(me.id),
                     phone=session["phone"],
                     name=me.first_name or me.username or session["phone"],
-                    api_id=session["api_id"],
-                    api_hash=session["api_hash"]
+                    api_id=str(session["api_id"]),
+                    api_hash=session["api_hash"],
+                    session_path=session["session_name"]
                 )
                 db.add(account)
                 db.commit()
@@ -180,12 +196,14 @@ class AuthService:
             me = await client.get_me()
             
             # Сохраняем в базу данных
-            with next(get_db()) as db:
+            with next_get_db() as db:
                 account = Account(
+                    tg_id=str(me.id),
                     phone=session["phone"],
                     name=me.first_name or me.username or session["phone"],
-                    api_id=session["api_id"],
-                    api_hash=session["api_hash"]
+                    api_id=str(session["api_id"]),
+                    api_hash=session["api_hash"],
+                    session_path=session["session_name"]
                 )
                 db.add(account)
                 db.commit()

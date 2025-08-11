@@ -18,7 +18,7 @@ from utils.keyboards import (
 )
 from services.auth_service import auth_service
 from database.models import Account, Group, Mailing
-from database.database import get_db
+from database.database import get_db, SessionLocal, next_get_db
 from telethon import TelegramClient
 from telethon.errors import ChatAdminRequiredError, FloodWaitError
 # API credentials теперь берутся из аккаунта
@@ -37,7 +37,7 @@ async def show_account_groups(callback: CallbackQuery):
     """Показывает группы аккаунта"""
     account_id = int(callback.data.split(":")[1])
     
-    with next(get_db()) as db:
+    with next_get_db() as db:
         account = db.query(Account).filter(Account.id == account_id).first()
         if not account:
             await callback.answer("❌ Аккаунт не найден")
@@ -56,8 +56,8 @@ async def show_account_groups(callback: CallbackQuery):
         for group in groups:
             groups_data.append({
                 'id': group.id,
-                'title': group.title,
-                'is_private': group.is_private
+                'title': group.name,  # Исправлено: используем name вместо title
+                'is_private': getattr(group, 'is_private', False)  # Безопасное получение атрибута
             })
         
         await callback.message.edit_text(
@@ -89,7 +89,7 @@ async def update_groups_for_account(account_id: int, callback: CallbackQuery):
     """Обновляет группы для аккаунта"""
     start_time = asyncio.get_event_loop().time()
     try:
-        with next(get_db()) as db:
+        with next_get_db() as db:
             account = db.query(Account).filter(Account.id == account_id).first()
             if not account:
                 await callback.answer("❌ Аккаунт не найден")
@@ -157,7 +157,7 @@ async def update_groups_for_account(account_id: int, callback: CallbackQuery):
                         participants_count = 0
                     
                     # Сохраняем или обновляем группу в базе
-                    with next(get_db()) as db:
+                    with next_get_db() as db:
                         existing_group = db.query(Group).filter(
                             Group.group_id == str(dialog.id),
                             Group.account_id == account_id
@@ -202,7 +202,7 @@ async def update_groups_for_account(account_id: int, callback: CallbackQuery):
         await client.disconnect()
         
         # Подсчитываем количество обновленных групп
-        with next(get_db()) as db:
+        with next_get_db() as db:
             updated_groups = db.query(Group).filter(Group.account_id == account_id).count()
         
         # Показываем результат обновления
@@ -245,7 +245,7 @@ async def group_menu(callback: CallbackQuery):
     """Меню конкретной группы"""
     group_id = int(callback.data.split(":")[1])
     
-    with next(get_db()) as db:
+    with next_get_db() as db:
         group = db.query(Group).filter(Group.id == group_id).first()
         if not group:
             await callback.answer("❌ Группа не найдена")
@@ -290,7 +290,7 @@ async def delete_group(callback: CallbackQuery):
     """Удаляет группу"""
     group_id = int(callback.data.split(":")[1])
     
-    with next(get_db()) as db:
+    with next_get_db() as db:
         group = db.query(Group).filter(Group.id == group_id).first()
         if group:
             # Останавливаем все рассылки этой группы
@@ -449,12 +449,23 @@ async def process_max_interval(message: Message, state: FSMContext):
             return
         
         # Создаем рассылку
-        group_id = data["group_id"]
-        mailing_text = data["mailing_text"]
+        group_id = data.get("group_id")
+        mailing_text = data.get("mailing_text")
         mailing_type = data.get("mailing_type", "text")
         photo_path = data.get("photo_path")
         
-        with next(get_db()) as db:
+        # Проверяем наличие обязательных данных
+        if not group_id:
+            await message.answer("❌ Ошибка: не найден ID группы. Попробуйте заново.", reply_markup=get_main_menu_keyboard())
+            await state.clear()
+            return
+            
+        if not mailing_text:
+            await message.answer("❌ Ошибка: не найден текст рассылки. Попробуйте заново.", reply_markup=get_main_menu_keyboard())
+            await state.clear()
+            return
+        
+        with next_get_db() as db:
             group = db.query(Group).filter(Group.id == group_id).first()
             if not group:
                 await message.answer("❌ Группа не найдена", reply_markup=get_main_menu_keyboard())
@@ -477,16 +488,16 @@ async def process_max_interval(message: Message, state: FSMContext):
                 text=mailing_text,
                 min_interval=min_interval,
                 max_interval=max_interval,
-                mailing_type=mailing_type,
                 photo_path=photo_path,
-                is_active=False  # Не запускаем автоматически
+                is_active=True,  # Активируем рассылку
+                status='pending'  # Устанавливаем статус
             )
             
             db.add(new_mailing)
             db.commit()
             
             await message.answer(
-                f"✅ Рассылка настроена для группы {group.title}\n\n"
+                f"✅ Рассылка настроена для группы {group.name}\n\n"
                 f"📝 Текст: {mailing_text[:50]}{'...' if len(mailing_text) > 50 else ''}\n"
                 f"⏰ Интервал: {min_interval}-{max_interval} мин\n\n"
                 f"Нажмите '▶️ Начать рассылку' в меню группы для запуска.",
@@ -502,7 +513,7 @@ async def start_group_mailing(callback: CallbackQuery):
     """Запускает рассылку для конкретной группы"""
     group_id = int(callback.data.split(":")[1])
     
-    with next(get_db()) as db:
+    with next_get_db() as db:
         group = db.query(Group).filter(Group.id == group_id).first()
         if not group:
             await callback.answer("❌ Группа не найдена")
@@ -539,7 +550,7 @@ async def stop_group_mailing(callback: CallbackQuery):
     """Останавливает рассылку для конкретной группы"""
     group_id = int(callback.data.split(":")[1])
     
-    with next(get_db()) as db:
+    with next_get_db() as db:
         # Ищем активную рассылку для этой группы
         mailing = db.query(Mailing).filter(
             Mailing.group_id == group_id,
@@ -574,7 +585,7 @@ async def show_mailing_status(callback: CallbackQuery):
     """Показывает детальный статус рассылки"""
     group_id = int(callback.data.split(":")[1])
     
-    with next(get_db()) as db:
+    with next_get_db() as db:
         group = db.query(Group).filter(Group.id == group_id).first()
         if not group:
             await callback.answer("❌ Группа не найдена")

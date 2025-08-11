@@ -13,7 +13,7 @@ TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH", "b7e61c7e93cc485090cfbc4c5f2a
 
 # Настройки базы данных PostgreSQL
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:1463@localhost:5432/tgmaill")
-SYNC_DATABASE_URL = os.getenv("SYNC_DATABASE_URL", "postgresql+asyncpg://postgres:1463@localhost:5432/tgmaill")
+SYNC_DATABASE_URL = os.getenv("SYNC_DATABASE_URL", "postgresql+psycopg2://postgres:1463@localhost:5432/tgmaill")
 
 # Настройки рассылки
 DEFAULT_MIN_INTERVAL = 5  # минут
@@ -32,3 +32,6 @@ MAX_PHOTO_SIZE = 10 * 1024 * 1024  # 10MB
 # Таймауты
 AUTH_TIMEOUT = 300  # 5 минут на авторизацию
 MESSAGE_TIMEOUT = 30  # 30 секунд между сообщениями 
+
+# Роли пользователей
+ROLES = ['user', 'operator', 'admin'] 

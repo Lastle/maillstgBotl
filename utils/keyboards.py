@@ -36,8 +36,14 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
         callback_data="night_mode"
     ))
     
+    # Админ-панель (только для админов)
+    builder.add(InlineKeyboardButton(
+        text="🔧 Админ-панель", 
+        callback_data="admin_panel"
+    ))
+    
     # Располагаем кнопки по одной в ряду для лучшей читаемости
-    builder.adjust(1, 1, 1, 1, 1, 1)
+    builder.adjust(1, 1, 1, 1, 1, 1, 1)
     return builder.as_markup()
 
 def get_account_menu_keyboard(account_id: int) -> InlineKeyboardMarkup:
@@ -194,6 +200,67 @@ def get_night_mode_keyboard() -> InlineKeyboardMarkup:
     ))
     
     builder.adjust(1, 1, 1, 1)
+    return builder.as_markup()
+
+def get_persistent_keyboard():
+    """Создает постоянную клавиатуру внизу экрана"""
+    builder = InlineKeyboardBuilder()
+    
+    builder.add(InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu"))
+    builder.add(InlineKeyboardButton(text="❓ Помощь", callback_data="help"))
+    builder.add(InlineKeyboardButton(text="⬅️ Назад", callback_data="back"))
+    
+    builder.adjust(3)
+    return builder.as_markup()
+
+def get_group_selection_keyboard(groups, selected_groups=None, account_id=None):
+    """Создает клавиатуру для выбора групп с чекбоксами"""
+    if selected_groups is None:
+        selected_groups = set()
+    
+    builder = InlineKeyboardBuilder()
+    
+    # Показываем первые 10 групп для удобства
+    for i, group in enumerate(groups[:10]):
+        is_selected = group.id in selected_groups
+        checkbox = "✅" if is_selected else "☐"
+        group_name = group.name[:25] + "..." if len(group.name) > 25 else group.name
+        
+        builder.add(InlineKeyboardButton(
+            text=f"{checkbox} {group_name}",
+            callback_data=f"toggle_group:{group.id}:{account_id}"
+        ))
+    
+    # Управляющие кнопки
+    if len(groups) > 10:
+        builder.add(InlineKeyboardButton(text="📄 Показать все группы", callback_data=f"show_all_groups:{account_id}"))
+    
+    builder.add(InlineKeyboardButton(text="✅ Выбрать все", callback_data=f"select_all_groups:{account_id}"))
+    builder.add(InlineKeyboardButton(text="❌ Снять все", callback_data=f"deselect_all_groups:{account_id}"))
+    
+    if selected_groups:
+        builder.add(InlineKeyboardButton(
+            text=f"🚀 Отправить в {len(selected_groups)} групп", 
+            callback_data=f"confirm_selected_groups:{account_id}"
+        ))
+    
+    builder.add(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"admin_account_details:{account_id}"))
+    
+    builder.adjust(1, 1, 1, 2, 1, 1)
+    return builder.as_markup()
+
+def get_text_variants_keyboard():
+    """Клавиатура для выбора количества вариантов текста"""
+    builder = InlineKeyboardBuilder()
+    
+    builder.add(InlineKeyboardButton(text="1️⃣ Один текст", callback_data="text_variants:1"))
+    builder.add(InlineKeyboardButton(text="2️⃣ Два варианта", callback_data="text_variants:2"))
+    builder.add(InlineKeyboardButton(text="3️⃣ Три варианта", callback_data="text_variants:3"))
+    builder.add(InlineKeyboardButton(text="5️⃣ Пять вариантов", callback_data="text_variants:5"))
+    
+    builder.add(InlineKeyboardButton(text="⬅️ Назад", callback_data="back"))
+    
+    builder.adjust(2, 2, 1)
     return builder.as_markup()
 
 def get_back_keyboard():

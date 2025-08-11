@@ -7,7 +7,7 @@ from aiogram.fsm.state import State, StatesGroup
 from utils.keyboards import get_main_menu_keyboard, get_night_mode_keyboard, get_back_keyboard, get_mailings_list_keyboard, get_mailing_details_keyboard
 from services.night_mode import get_night_mode_status, enable_night_mode, disable_night_mode
 from services.mailing_service import mailing_service
-from database.database import get_async_db
+from database.database import get_db, next_get_db
 from sqlalchemy import delete
 from database.models import Mailing, MailingHistory
 from config import ADMIN_IDS
@@ -125,34 +125,122 @@ async def show_mailing_history(callback: CallbackQuery):
 @router.callback_query(F.data == "mailings_list")
 async def show_mailings_list(callback: CallbackQuery):
     """Показывает список всех рассылок"""
-    print(f"🔍 Обработчик списка рассылок вызван")
     try:
-        mailings = await mailing_service.get_all_mailings()
-        print(f"📋 Получено рассылок: {len(mailings)}")
+        # Используем базу данных напрямую вместо сервиса
+        with next_get_db() as db:
+            from database.models import Mailing, Account
+            mailings = db.query(Mailing).join(Account).all()
         
         if not mailings:
             text = "📋 Список рассылок\n\nРассылок пока нет."
         else:
             text = f"📋 Список рассылок ({len(mailings)}):\n\n"
             for i, mailing in enumerate(mailings, 1):
-                text += f"{i}. {mailing['status']}\n"
-                text += f"   Аккаунт: {mailing['account_name']}\n"
-                text += f"   Группа: {mailing['group_title']}\n"
-                text += f"   Тип: {mailing['mailing_type']}\n"
-                text += f"   Интервал: {mailing['min_interval']}-{mailing['max_interval']} мин\n"
-                text += f"   Создана: {mailing['created_at']}\n\n"
+                status_emoji = "✅" if mailing.is_active else "❌"
+                text += f"{i}. {status_emoji} ID: {mailing.id}\n"
+                text += f"   Аккаунт: {mailing.account.phone}\n"
+                text += f"   Создано: {mailing.created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
         
-        await callback.message.edit_text(
-            text, 
-            reply_markup=get_mailings_list_keyboard(mailings)
-        )
+        await callback.message.edit_text(text, reply_markup=get_back_keyboard())
         await callback.answer()
         
     except Exception as e:
-        print(f"❌ Ошибка в show_mailings_list: {e}")
-        await callback.answer("❌ Ошибка при получении списка рассылок")
+        await callback.message.edit_text(
+            "❌ Ошибка при получении списка рассылок\n\n"
+            "Попробуйте позже или обратитесь к администратору.",
+            reply_markup=get_back_keyboard()
+        )
+        await callback.answer()
 
 
+
+@router.callback_query(F.data == "help")
+async def show_help(callback: CallbackQuery):
+    """Показывает справку по использованию бота"""
+    help_text = (
+        f"❓ **СПРАВКА ПО ИСПОЛЬЗОВАНИЮ БОТА**\n\n"
+        f"🚀 **Быстрая рассылка** - Запуск рассылки с выбором аккаунта, текстов и групп\n"
+        f"👤 **Мои аккаунты** - Просмотр подключенных аккаунтов и управление ими\n"
+        f"📋 **История рассылок** - Просмотр всех выполненных рассылок\n"
+        f"🔧 **Админ-панель** - Расширенные функции администратора\n"
+        f"📊 **Статистика** - Детальная статистика по рассылкам\n\n"
+        f"🎯 **КАК СОЗДАТЬ РАССЫЛКУ:**\n"
+        f"1. Выберите 'Быстрая рассылка' или перейдите в аккаунт\n"
+        f"2. Укажите количество вариантов текста (1-5)\n"
+        f"3. Введите тексты для рассылки\n"
+        f"4. Выберите группы с помощью чекбоксов ✅\n"
+        f"5. Подтвердите и запустите рассылку\n\n"
+        f"🎲 **ВАРИАТИВНОСТЬ ТЕКСТОВ:**\n"
+        f"• Несколько текстов помогают избежать блокировки\n"
+        f"• Тексты выбираются случайно для каждой группы\n"
+        f"• Рекомендуется использовать 2-3 варианта\n\n"
+        f"⚡ **ПОЛЕЗНЫЕ ФУНКЦИИ:**\n"
+        f"• ✅ Выбрать все группы\n"
+        f"• ❌ Снять выбор со всех групп\n"
+        f"• 🔄 Обновить список групп\n"
+        f"• 📊 Просмотр статистики в реальном времени\n\n"
+        f"💡 **СОВЕТЫ:**\n"
+        f"• Используйте задержки между сообщениями\n"
+        f"• Проверяйте статистику после рассылки\n"
+        f"• Обновляйте списки групп регулярно"
+    )
+    
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu"))
+    builder.add(InlineKeyboardButton(text="🚀 Быстрая рассылка", callback_data="quick_spam"))
+    builder.adjust(2)
+    
+    await callback.message.edit_text(help_text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await callback.answer()
+
+@router.callback_query(F.data == "main_menu")
+async def back_to_main_menu(callback: CallbackQuery):
+    """Возвращает в главное меню"""
+    welcome_text = f"🏠 **ГЛАВНОЕ МЕНЮ**\n\n👋 Добро пожаловать, {callback.from_user.first_name}!\n\nВыберите действие:"
+    await callback.message.edit_text(welcome_text, reply_markup=get_main_menu_keyboard(), parse_mode="Markdown")
+    await callback.answer()
+
+@router.callback_query(F.data == "quick_spam")
+async def quick_spam_menu(callback: CallbackQuery):
+    """Быстрое меню для рассылки"""
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("⛔️ У вас нет доступа к этой функции.", show_alert=True)
+        return
+    
+    with next_get_db() as db:
+        accounts = db.query(Account).all()
+    
+    if not accounts:
+        await callback.message.edit_text(
+            "❌ **НЕТ АККАУНТОВ**\n\n"
+            "Сначала добавьте аккаунты через раздел 'Мои аккаунты'.",
+            reply_markup=get_persistent_keyboard(),
+            parse_mode="Markdown"
+        )
+        await callback.answer()
+        return
+    
+    text = (
+        f"🚀 **БЫСТРАЯ РАССЫЛКА**\n\n"
+        f"📱 Доступно аккаунтов: {len(accounts)}\n\n"
+        f"Выберите аккаунт для рассылки:"
+    )
+    
+    builder = InlineKeyboardBuilder()
+    for account in accounts:
+        with next_get_db() as db:
+            groups_count = db.query(Group).filter(Group.account_id == account.id).count()
+        
+        builder.add(InlineKeyboardButton(
+            text=f"📱 {account.phone} ({groups_count} групп)",
+            callback_data=f"admin_spam_from:{account.id}"
+        ))
+    
+    builder.add(InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu"))
+    builder.adjust(1)
+    
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await callback.answer()
 
 @router.callback_query(F.data.startswith("mailing_details:"))
 async def show_mailing_details(callback: CallbackQuery):

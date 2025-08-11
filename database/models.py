@@ -1,83 +1,81 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, Float
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
-from datetime import datetime
+# models.py
 
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, UniqueConstraint, Boolean
+from sqlalchemy.orm import declarative_base, sessionmaker
+from datetime import datetime
+from config import SYNC_DATABASE_URL
+
+engine = create_engine(SYNC_DATABASE_URL, pool_pre_ping=True)
 Base = declarative_base()
+SessionLocal = sessionmaker(bind=engine)
 
 class Account(Base):
-    """Модель аккаунта"""
     __tablename__ = 'accounts'
-    
-    id = Column(Integer, primary_key=True)
-    phone = Column(String(20), unique=True, nullable=False)
-    name = Column(String(100))
-    api_id = Column(Integer, nullable=False)
-    api_hash = Column(String(100), nullable=False)
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    
-    # Связи
-    groups = relationship("Group", back_populates="account")
-    mailings = relationship("Mailing", back_populates="account")
+    id          = Column(Integer, primary_key=True)
+    tg_id       = Column(String, nullable=True, unique=True)
+    phone       = Column(String)
+    name        = Column(String)
+    token       = Column(String)
+    session_path= Column(String)
+    role        = Column(String, default='user')  # user/operator/admin
+    api_id      = Column(String)  # API ID для Telegram
+    api_hash    = Column(String)  # API Hash для Telegram
+    is_active   = Column(Boolean, default=True)  # Активен ли аккаунт
 
 class Group(Base):
-    """Модель группы"""
     __tablename__ = 'groups'
-    
-    id = Column(Integer, primary_key=True)
-    group_id = Column(String(50), nullable=False)  # Telegram group ID
-    title = Column(String(200), nullable=False)
-    username = Column(String(100))
-    member_count = Column(Integer, default=0)
-    group_type = Column(String(50))  # supergroup, group
-    is_private = Column(Boolean, default=False)
-    account_id = Column(Integer, ForeignKey('accounts.id'))
-    
-    # Связи
-    account = relationship("Account", back_populates="groups")
-    mailings = relationship("Mailing", back_populates="group")
+    id          = Column(Integer, primary_key=True)
+    account_id  = Column(Integer, ForeignKey('accounts.id'))
+    tg_id       = Column(String, nullable=False)  # Telegram ID группы
+    name        = Column(String)  # Название группы
+    type        = Column(String)  # 'group' или 'channel'
+    segment     = Column(String, default='')  # Сегмент для рассылки
+
+class MessageLog(Base):
+    __tablename__ = 'message_logs'
+    id          = Column(Integer, primary_key=True)
+    account_id  = Column(Integer, ForeignKey('accounts.id'))
+    group_id    = Column(String)
+    text        = Column(Text)
+    status      = Column(String)
+    timestamp   = Column(DateTime, default=datetime.utcnow)
 
 class Mailing(Base):
-    """Модель рассылки"""
     __tablename__ = 'mailings'
-    
-    id = Column(Integer, primary_key=True)
-    text = Column(Text)
-    photo_path = Column(String(500))
-    mailing_type = Column(String(50))  # text, photo, photo_with_text
-    interval_type = Column(String(50))  # fixed, random
-    min_interval = Column(Integer)  # минуты
-    max_interval = Column(Integer)  # минуты
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    started_at = Column(DateTime)
-    stopped_at = Column(DateTime)
-    
-    # Связи
-    account_id = Column(Integer, ForeignKey('accounts.id'))
-    group_id = Column(Integer, ForeignKey('groups.id'))
-    account = relationship("Account", back_populates="mailings")
-    group = relationship("Group", back_populates="mailings")
+    id          = Column(Integer, primary_key=True)
+    account_id  = Column(Integer, ForeignKey('accounts.id'))
+    group_id    = Column(Integer, ForeignKey('groups.id'))  # Добавлено поле для связи с группой
+    text        = Column(Text)
+    photo_path  = Column(String)
+    groups      = Column(Text)  # JSON строка с ID групп (для массовых рассылок)
+    status      = Column(String, default='pending')  # pending, running, stopped, completed
+    is_active   = Column(Boolean, default=True)  # Активна ли рассылка
+    created_at  = Column(DateTime, default=datetime.utcnow)
+    started_at  = Column(DateTime)
+    completed_at = Column(DateTime)
+    total_groups = Column(Integer, default=0)
+    sent_count  = Column(Integer, default=0)
+    error_count = Column(Integer, default=0)
+    min_interval = Column(Integer, default=1)  # Минимальный интервал в минутах
+    max_interval = Column(Integer, default=5)  # Максимальный интервал в минутах
 
 class MailingHistory(Base):
-    """Модель истории рассылок"""
     __tablename__ = 'mailing_history'
-    
-    id = Column(Integer, primary_key=True)
-    mailing_id = Column(Integer, ForeignKey('mailings.id'))
-    account_id = Column(Integer, ForeignKey('accounts.id'))
-    group_id = Column(Integer, ForeignKey('groups.id'))
-    text = Column(Text)
-    sent_at = Column(DateTime, default=datetime.utcnow)
-    interval_used = Column(Float)  # фактический интервал в минутах
+    id          = Column(Integer, primary_key=True)
+    mailing_id  = Column(Integer, ForeignKey('mailings.id'))
+    group_id    = Column(String)
+    group_title = Column(String)
+    status      = Column(String)  # sent, error, skipped
+    error_message = Column(Text)
+    sent_at     = Column(DateTime, default=datetime.utcnow)
 
 class NightMode(Base):
-    """Модель ночного режима"""
     __tablename__ = 'night_mode'
-    
-    id = Column(Integer, primary_key=True)
-    is_enabled = Column(Boolean, default=False)
-    start_hour = Column(Integer, default=21)
-    end_hour = Column(Integer, default=5)
-    multiplier = Column(Float, default=2.0) 
+    id          = Column(Integer, primary_key=True)
+    enabled     = Column(String, default='false')  # 'true' или 'false'
+    start_hour  = Column(Integer, default=21)
+    end_hour    = Column(Integer, default=5)
+    updated_at  = Column(DateTime, default=datetime.utcnow)
+
+def init_db():
+    Base.metadata.create_all(bind=engine)
