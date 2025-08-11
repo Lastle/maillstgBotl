@@ -32,10 +32,9 @@ def enable_night_mode() -> Dict[str, Any]:
         
         if not night_mode:
             night_mode = NightMode(
-                is_enabled=True,
+                enabled=True,
                 start_hour=DEFAULT_NIGHT_START,
-                end_hour=DEFAULT_NIGHT_END,
-                multiplier=NIGHT_MODE_MULTIPLIER
+                end_hour=DEFAULT_NIGHT_END
             )
             db.add(night_mode)
         else:
@@ -46,7 +45,7 @@ def enable_night_mode() -> Dict[str, Any]:
 
 def disable_night_mode() -> Dict[str, Any]:
     """Выключает ночной режим"""
-    with get_db() as db:
+    with next_get_db() as db:
         night_mode = db.query(NightMode).first()
         if night_mode:
             night_mode.enabled = False
@@ -54,13 +53,10 @@ def disable_night_mode() -> Dict[str, Any]:
             return get_night_mode_settings()
         return {"error": "Настройки ночного режима не найдены"}
 
-def update_night_mode_settings(start_hour: int, end_hour: int, multiplier: float = 2.0) -> Dict[str, Any]:
+def update_night_mode_settings(start_hour: int, end_hour: int) -> Dict[str, Any]:
     """Обновляет настройки ночного режима"""
     if not (0 <= start_hour <= 23 and 0 <= end_hour <= 23):
         return {"success": False, "error": "Часы должны быть от 0 до 23"}
-    
-    if multiplier <= 0:
-        return {"success": False, "error": "Множитель должен быть больше 0"}
     
     with next_get_db() as db:
         night_mode = db.query(NightMode).first()
@@ -71,13 +67,12 @@ def update_night_mode_settings(start_hour: int, end_hour: int, multiplier: float
         
         night_mode.start_hour = start_hour
         night_mode.end_hour = end_hour
-        night_mode.multiplier = multiplier
         
         db.commit()
     
     return {
         "success": True, 
-        "message": f"Настройки обновлены: {start_hour}:00 - {end_hour}:00, множитель x{multiplier}"
+        "message": f"Настройки обновлены: {start_hour}:00 - {end_hour}:00"
     }
 
 def get_night_mode_status() -> str:

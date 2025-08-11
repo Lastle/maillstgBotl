@@ -40,6 +40,10 @@ async def main():
         print('Проверьте .env!')
         return
     
+    # Инициализируем базу данных
+    from database.database import init_db_sync
+    init_db_sync()
+    
     # Подключаем роутеры
     dp.include_router(main_handler.router)
     dp.include_router(accounts.router)

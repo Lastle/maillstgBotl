@@ -154,14 +154,14 @@ async def process_photo_attachment(callback: CallbackQuery, state: FSMContext):
             reply_markup=get_back_keyboard()
         )
         await state.set_state(MailingSetup.waiting_photo)
-        await state.update_data(photo_type="only_photo")
+        await state.update_data(photo_type="only_photo", start_mailing_after_photo=True)
     elif attachment_type == "with_text":
         await callback.message.edit_text(
             "📷 Отправьте фото:",
             reply_markup=get_back_keyboard()
         )
         await state.set_state(MailingSetup.waiting_photo)
-        await state.update_data(photo_type="with_text")
+        await state.update_data(photo_type="with_text", start_mailing_after_photo=True)
     
     await callback.answer()
 
@@ -189,9 +189,25 @@ async def process_photo(message: Message, state: FSMContext):
     else:  # with_text
         await state.update_data(photo_path=photo_path, mailing_type="photo_with_text")
     
-    await start_mailing(message, state)
+    # Проверяем флаг для запуска рассылки
+    start_mailing_after_photo = data.get("start_mailing_after_photo")
+    if start_mailing_after_photo:
+        # Создаем фейковый callback для запуска рассылки
+        from aiogram.types import CallbackQuery
+        fake_callback = CallbackQuery(
+            id="fake",
+            from_user=message.from_user,
+            chat=message.chat,
+            message=message,
+            data="start_mailing"
+        )
+        await start_mailing(fake_callback, state)
+    else:
+        # Если флаг не установлен, отправляем сообщение пользователю
+        await message.answer("❌ Произошла ошибка. Попробуйте начать рассылку заново.", reply_markup=get_main_menu_keyboard())
+        await state.clear()
 
-async def start_mailing(callback_or_message, state: FSMContext):
+async def start_mailing(callback: CallbackQuery, state: FSMContext):
     """Запускает рассылку"""
     data = await state.get_data()
     
@@ -224,29 +240,16 @@ async def start_mailing(callback_or_message, state: FSMContext):
         if night_settings["is_enabled"]:
             night_info = f"\n🌙 Ночной режим: ВКЛ ({night_settings['start_hour']}:00-{night_settings['end_hour']}:00, x{night_settings['multiplier']})"
         
-        # Проверяем тип объекта для правильного ответа
-        if hasattr(callback_or_message, 'message'):
-            # Это callback_query - редактируем сообщение
-            await callback_or_message.message.edit_text(
-                f"✅ {result['message']}\n\n"
-                f"📝 Тип рассылки: {mailing_type}\n"
-                f"⏰ Интервал: {interval_text}\n"
-                f"🔄 Рассылка работает в фоновом режиме\n"
-                f"📊 Следите за историей рассылок{night_info}",
-                reply_markup=get_main_menu_keyboard()
-            )
-        else:
-            # Это message - отправляем новое сообщение
-            await callback_or_message.answer(
-                f"✅ {result['message']}\n\n"
-                f"📝 Тип рассылки: {mailing_type}\n"
-                f"⏰ Интервал: {interval_text}\n"
-                f"🔄 Рассылка работает в фоновом режиме\n"
-                f"📊 Следите за историей рассылок{night_info}",
-                reply_markup=get_main_menu_keyboard()
-            )
+        await callback.message.edit_text(
+            f"✅ {result['message']}\n\n"
+            f"📝 Тип рассылки: {mailing_type}\n"
+            f"⏰ Интервал: {interval_text}\n"
+            f"🔄 Рассылка работает в фоновом режиме\n"
+            f"📊 Следите за историей рассылок{night_info}",
+            reply_markup=get_main_menu_keyboard()
+        )
     else:
-        await callback_or_message.answer(
+        await callback.message.edit_text(
             f"❌ {result['error']}",
             reply_markup=get_main_menu_keyboard()
         )

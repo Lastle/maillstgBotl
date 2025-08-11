@@ -72,7 +72,7 @@ class MailingHistory(Base):
 class NightMode(Base):
     __tablename__ = 'night_mode'
     id          = Column(Integer, primary_key=True)
-    enabled     = Column(String, default='false')  # 'true' или 'false'
+    enabled     = Column(Boolean, default=False)  # Активен ли ночной режим
     start_hour  = Column(Integer, default=21)
     end_hour    = Column(Integer, default=5)
     updated_at  = Column(DateTime, default=datetime.utcnow)
