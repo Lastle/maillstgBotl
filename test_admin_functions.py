@@ -7,7 +7,7 @@
 import asyncio
 from telethon import TelegramClient
 from database.models import Account, Group
-from database.database import get_db
+from database.database import next_get_db
 from config import TELEGRAM_API_ID, TELEGRAM_API_HASH
 import logging
 
@@ -37,7 +37,7 @@ async def test_account_groups(account):
             logger.info(f"  📱 Групп: {groups_count}, Каналов: {channels_count}")
             
             # Обновляем информацию в БД
-            with next(get_db()) as db:
+            with next_get_db() as db:
                 # Удаляем старые записи групп для этого аккаунта
                 db.query(Group).filter(Group.account_id == account.id).delete()
                 
@@ -74,7 +74,7 @@ async def test_all_admin_functions():
     
     # 1. Тестируем получение всех аккаунтов
     logger.info("\n1️⃣ Тестируем функцию 'Все аккаунты и номера'")
-    with next(get_db()) as db:
+    with next_get_db() as db:
         accounts = db.query(Account).all()
         logger.info(f"✅ Найдено аккаунтов в БД: {len(accounts)}")
         
@@ -96,7 +96,7 @@ async def test_all_admin_functions():
     
     # 3. Проверяем данные в БД после обновления
     logger.info("\n3️⃣ Проверяем обновленные данные в БД")
-    with next(get_db()) as db:
+    with next_get_db() as db:
         groups_in_db = db.query(Group).all()
         logger.info(f"✅ Групп в БД: {len(groups_in_db)}")
         
@@ -116,7 +116,7 @@ async def test_all_admin_functions():
     logger.info("\n4️⃣ Тестируем подготовку к массовой рассылке")
     test_message = "Тестовое сообщение для проверки функционала"
     
-    with next(get_db()) as db:
+    with next_get_db() as db:
         accounts = db.query(Account).all()
         available_accounts = []
         

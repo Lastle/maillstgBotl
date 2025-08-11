@@ -7,7 +7,7 @@
 import asyncio
 from telethon import TelegramClient
 from database.models import Account, Group
-from database.database import get_db
+from database.database import next_get_db
 from config import TELEGRAM_API_ID, TELEGRAM_API_HASH
 import logging
 
@@ -29,12 +29,12 @@ async def load_account_groups(account):
             channels_count = 0
             
             # Очищаем старые группы этого аккаунта
-            with next(get_db()) as db:
+            with next_get_db() as db:
                 db.query(Group).filter(Group.account_id == account.id).delete()
                 db.commit()
             
             # Добавляем новые группы
-            with next(get_db()) as db:
+            with next_get_db() as db:
                 for dialog in dialogs:
                     if dialog.is_group or dialog.is_channel:
                         group_type = 'group' if dialog.is_group else 'channel'
@@ -74,7 +74,7 @@ async def load_all_groups():
     """Загружает группы для всех аккаунтов"""
     logger.info("🔄 Начинаем загрузку групп для всех аккаунтов")
     
-    with next(get_db()) as db:
+    with next_get_db() as db:
         accounts = db.query(Account).all()
         logger.info(f"📊 Найдено аккаунтов: {len(accounts)}")
     
@@ -92,7 +92,7 @@ async def load_all_groups():
     
     # Показываем итоговую статистику по аккаунтам
     logger.info("\n📋 Статистика по аккаунтам:")
-    with next(get_db()) as db:
+    with next_get_db() as db:
         accounts = db.query(Account).all()
         for account in accounts:
             groups = db.query(Group).filter(Group.account_id == account.id).all()

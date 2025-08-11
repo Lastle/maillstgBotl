@@ -27,32 +27,18 @@ class MailingService:
         s = str(raw_id)
         return int(s[4:]) if s.startswith('-100') else abs(int(raw_id))
     
-    async def _resolve_entity(self, client: TelegramClient, group) -> Optional[Any]:
-        """Резолвит entity для группы"""
-        # 1) по username (надежно для публичных)
-        if group.username:
-            uname = group.username if group.username.startswith('@') else '@' + group.username
-            try:
-                return await client.get_entity(uname)
-            except UsernameNotOccupiedError:
-                print(f"⛔ Username {uname} не существует")
-                return None
-            except PeerIdInvalidError:
-                # попробуем другими способами ниже
-                pass
-            except Exception as e:
-                print(f"⚠️ get_entity по username упал: {e}")
-
-        # 2) по диалогам (если уже в списке чатов у аккаунта)
+    async def _resolve_entity(self, client: TelegramClient, group: Group) -> Optional[Any]:
+        """Резолвит entity для группы по её tg_id через список диалогов"""
         try:
-            target_id = self._to_channel_id(group.group_id)
+            # tg_id хранится как строка, приводим к int
+            raw_id = int(group.tg_id)
+            target_id = self._to_channel_id(raw_id)
             for d in await client.get_dialogs():
                 ent = getattr(d, 'entity', None)
                 if isinstance(ent, Channel) and getattr(ent, 'id', None) == target_id:
                     return ent
         except Exception as e:
-            print(f"⚠️ Поиск в диалогах не удался: {e}")
-
+            print(f"⚠️ Поиск entity по tg_id не удался: {e}")
         return None
     
     async def cleanup_old_mailings(self):
@@ -188,7 +174,7 @@ class MailingService:
                     print(f"❌ Аккаунт или группа не найдены для рассылки {mailing_id}")
                     return
                 
-                print(f"📱 Работаем с аккаунтом {account.phone} и группой {group.title}")
+                print(f"📱 Работаем с аккаунтом {account.phone} и группой {getattr(group, 'name', str(group.id))}")
             
             # Создаем или получаем клиент
             print(f"🔌 Получаем клиент для аккаунта {account.phone}...")
@@ -243,9 +229,9 @@ class MailingService:
                 # Отправляем сообщение
                 ok = await self._send_message(client, group.id, mailing.id)
                 if ok:
-                    print(f"✅ Отправлено сообщение в группу {group.title} (рассылка {mailing_id})")
+                    print(f"✅ Отправлено сообщение в группу {getattr(group, 'name', str(group.id))} (рассылка {mailing_id})")
                 else:
-                    print(f"⚠️ Сообщение НЕ отправлено в группу {group.title} (рассылка {mailing_id})")
+                    print(f"⚠️ Сообщение НЕ отправлено в группу {getattr(group, 'name', str(group.id))} (рассылка {mailing_id})")
                 
         except asyncio.CancelledError:
             print(f"🛑 Рассылка {mailing_id} отменена")
@@ -294,7 +280,7 @@ class MailingService:
                     return False
 
                 print("📋 === ОТЛАДКА ГРУППЫ ===")
-                print(f"Название: {group.title} | group_id: {group.group_id} | username: {group.username} | type: {group.group_type}")
+                print(f"Название: {getattr(group, 'name', str(group.id))} | tg_id: {getattr(group, 'tg_id', '?')} | type: {getattr(group, 'type', '?')}")
 
                 entity = await self._resolve_entity(client, group)
                 if not entity:
@@ -312,24 +298,40 @@ class MailingService:
                     # Пропускаем автоматическое присоединение - аккаунт может быть заблокирован
                     # Отправляем только если уже состоим в группе
 
+                # Подготовка текста: поддержка нескольких вариантов через '||'
+                selected_text = (mailing.text or "").strip()
+                if selected_text and "||" in selected_text:
+                    variants = [v.strip() for v in selected_text.split("||") if v.strip()]
+                    if variants:
+                        import random as _r
+                        selected_text = _r.choice(variants)
+                
                 # Отправка
-                if mailing.mailing_type == "text":
-                    await client.send_message(entity, mailing.text)
-                elif mailing.mailing_type == "photo":
+                mailing_type = getattr(mailing, 'mailing_type', None) or ("photo" if getattr(mailing, 'photo_path', None) and not selected_text else ("photo_with_text" if getattr(mailing, 'photo_path', None) and selected_text else "text"))
+                if mailing_type == "text":
+                    await client.send_message(entity, selected_text)
+                elif mailing_type == "photo":
                     await client.send_file(entity, mailing.photo_path)
-                elif mailing.mailing_type == "photo_with_text":
-                    await client.send_file(entity, mailing.photo_path, caption=mailing.text)
+                elif mailing_type == "photo_with_text":
+                    await client.send_file(entity, mailing.photo_path, caption=selected_text)
+                else:
+                    await client.send_message(entity, selected_text)
 
-                # История — только при успехе
-                history = MailingHistory(
-                    mailing_id=mailing.id,
-                    account_id=mailing.account_id,
-                    group_id=mailing.group_id,
-                    text=truncate_text(mailing.text or "")
-                )
-                db.add(history)
-                await db.commit()
-                print(f"📝 История сохранена для рассылки {mailing_id}")
+                # История — только при успехе (подстраиваемся под актуальную модель)
+                try:
+                    history = MailingHistory(
+                        mailing_id=mailing.id,
+                        group_id=str(getattr(group, 'tg_id', group.id)),
+                        group_title=getattr(group, 'name', str(group.id)),
+                        status='sent',
+                        error_message=None,
+                    )
+                    db.add(history)
+                    await db.commit()
+                    print(f"📝 История сохранена для рассылки {mailing_id}")
+                except Exception as he:
+                    # Не падаем, если схема отличается
+                    print(f"⚠️ Не удалось сохранить историю: {he}")
                 return True
 
         except Exception as e:
@@ -364,7 +366,7 @@ class MailingService:
                 print(f"👥 Аккаунт {account.phone}: найдено групп {len(groups)}")
                 
                 for group in groups:
-                    print(f"   📋 Группа: {group.title}")
+                    print(f"   📋 Группа: {getattr(group, 'name', str(group.id))}")
                     mailing = Mailing(
                         text=text,
                         photo_path=photo_path,

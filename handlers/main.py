@@ -335,3 +335,39 @@ async def stop_broadcast_all(callback: CallbackQuery):
     except Exception as e:
         if "message is not modified" not in str(e):
             raise e 
+
+@router.callback_query(F.data == "back")
+async def back_handler(callback: CallbackQuery, state: FSMContext):
+    """Универсальный обработчик кнопки 'Назад' / Universal 'Back' button handler"""
+    # Очищаем состояние FSM
+    await state.clear()
+    
+    # Возвращаемся в главное меню
+    welcome_text = (
+        f"👋 Добро пожаловать, {callback.from_user.first_name}!\n\n"
+        f"Выберите действие:\n\n"
+        f"👋 Welcome, {callback.from_user.first_name}!\n\n"
+        f"Choose an action:"
+    )
+    await callback.message.edit_text(welcome_text, reply_markup=get_main_menu_keyboard())
+    await callback.answer()
+
+@router.callback_query(F.data == "accounts")
+async def accounts_handler(callback: CallbackQuery):
+    """Обработчик кнопки 'К аккаунтам' / 'To accounts' button handler"""
+    # Перенаправляем к списку аккаунтов
+    from handlers.accounts import my_accounts
+    await my_accounts(callback)
+
+@router.callback_query(F.data == "groups")
+async def groups_handler(callback: CallbackQuery):
+    """Обработчик кнопки 'К группам' / 'To groups' button handler"""
+    # Возвращаемся в главное меню, так как нет общего списка групп
+    welcome_text = (
+        f"👋 Группы доступны через аккаунты\n\n"
+        f"Выберите 'Мои аккаунты' для просмотра групп\n\n"
+        f"👋 Groups are available through accounts\n\n"
+        f"Select 'My accounts' to view groups"
+    )
+    await callback.message.edit_text(welcome_text, reply_markup=get_main_menu_keyboard())
+    await callback.answer()

@@ -848,7 +848,7 @@ async def show_admin_stats(callback: CallbackQuery):
         no_rights_count = db.query(MessageLog).filter(MessageLog.status == 'no_admin_rights').count()
         
         # Последние рассылки
-        recent_messages = db.query(MessageLog).order_by(MessageLog.sent_at.desc()).limit(5).all()
+        recent_messages = db.query(MessageLog).order_by(MessageLog.timestamp.desc()).limit(5).all()
     
     success_rate = int(successful_messages / total_messages * 100) if total_messages > 0 else 0
     
@@ -875,7 +875,7 @@ async def show_admin_stats(callback: CallbackQuery):
                 'error': '❌'
             }.get(msg.status, '❓')
             
-            text += f"• {status_emoji} {msg.sent_at.strftime('%d.%m %H:%M')} - {msg.message_text[:30]}...\n"
+            text += f"• {status_emoji} {msg.timestamp.strftime('%d.%m %H:%M')} - {msg.text[:30]}...\n"
     else:
         text += f"📭 Рассылок пока не было."
     
@@ -970,7 +970,7 @@ async def execute_spam_campaign(account: Account, message_text: str, status_mess
                     log_entry = MessageLog(
                         account_id=account.id,
                         group_id=group.id,
-                        message_text=message_text[:500],  # Ограничиваем длину
+                        text=message_text[:500],  # Ограничиваем длину
                         status='sent',
                         sent_at=datetime.now()
                     )
@@ -1003,7 +1003,7 @@ async def execute_spam_campaign(account: Account, message_text: str, status_mess
                     log_entry = MessageLog(
                         account_id=account.id,
                         group_id=group.id,
-                        message_text=message_text[:500],
+                        text=message_text[:500],
                         status='flood_wait',
                         error_message=f"FloodWait {e.seconds}s",
                         sent_at=datetime.now()
@@ -1020,7 +1020,7 @@ async def execute_spam_campaign(account: Account, message_text: str, status_mess
                     log_entry = MessageLog(
                         account_id=account.id,
                         group_id=group.id,
-                        message_text=message_text[:500],
+                        text=message_text[:500],
                         status='no_admin_rights',
                         error_message="No admin rights",
                         sent_at=datetime.now()
@@ -1037,7 +1037,7 @@ async def execute_spam_campaign(account: Account, message_text: str, status_mess
                     log_entry = MessageLog(
                         account_id=account.id,
                         group_id=group.id,
-                        message_text=message_text[:500],
+                        text=message_text[:500],
                         status='error',
                         error_message=str(e)[:200],
                         sent_at=datetime.now()
@@ -1123,7 +1123,7 @@ async def execute_custom_spam_campaign(account: Account, text_variants: list, se
                     log_entry = MessageLog(
                         account_id=account.id,
                         group_id=group.id,
-                        message_text=random_text[:500],
+                        text=random_text[:500],
                         status='sent',
                         sent_at=datetime.now()
                     )
@@ -1158,7 +1158,7 @@ async def execute_custom_spam_campaign(account: Account, text_variants: list, se
                     log_entry = MessageLog(
                         account_id=account.id,
                         group_id=group.id,
-                        message_text=text_variants[0][:500],  # Логируем первый вариант
+                        text=text_variants[0][:500],  # Логируем первый вариант
                         status='flood_wait',
                         error_message=f"FloodWait {e.seconds}s",
                         sent_at=datetime.now()
@@ -1175,10 +1175,8 @@ async def execute_custom_spam_campaign(account: Account, text_variants: list, se
                     log_entry = MessageLog(
                         account_id=account.id,
                         group_id=group.id,
-                        message_text=text_variants[0][:500],
-                        status='error',
-                        error_message=str(e)[:200],
-                        sent_at=datetime.now()
+                        text=text_variants[0][:500],
+                        status='error'
                     )
                     db.add(log_entry)
                     db.commit()
@@ -1314,7 +1312,7 @@ async def execute_single_account_spam(account: Account, message_text: str, statu
                     log_entry = MessageLog(
                         account_id=account.id,
                         group_id=group.id,
-                        message_text=message_text[:500],
+                        text=message_text[:500],
                         status='sent',
                         sent_at=datetime.now()
                     )
@@ -1333,7 +1331,7 @@ async def execute_single_account_spam(account: Account, message_text: str, statu
                     log_entry = MessageLog(
                         account_id=account.id,
                         group_id=group.id,
-                        message_text=message_text[:500],
+                        text=message_text[:500],
                         status='flood_wait',
                         error_message=f"FloodWait {e.seconds}s",
                         sent_at=datetime.now()
@@ -1349,7 +1347,7 @@ async def execute_single_account_spam(account: Account, message_text: str, statu
                     log_entry = MessageLog(
                         account_id=account.id,
                         group_id=group.id,
-                        message_text=message_text[:500],
+                        text=message_text[:500],
                         status='error',
                         error_message=str(e)[:200],
                         sent_at=datetime.now()

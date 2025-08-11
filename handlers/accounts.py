@@ -7,7 +7,8 @@ from utils.keyboards import get_main_menu_keyboard, get_account_menu_keyboard, g
 from services.auth_service import auth_service
 from services.mailing_service import mailing_service
 from database.models import Account, Group, Mailing
-from database.database import get_db, SessionLocal
+from database.database import get_async_db
+from sqlalchemy import select, func
 from config import ADMIN_IDS
 
 router = Router()
@@ -119,42 +120,44 @@ async def process_password(message: Message, state: FSMContext):
 @router.callback_query(F.data == "my_accounts")
 async def show_accounts(callback: CallbackQuery):
     """Показывает список аккаунтов"""
-    db = SessionLocal()
     try:
-        accounts = db.query(Account).filter(Account.is_active == True).all()
-        
-        if not accounts:
-            text = "👤 Мои аккаунты\n\nУ вас нет добавленных аккаунтов."
-            await callback.message.edit_text(text, reply_markup=get_back_keyboard())
-            return
-        
-        # Если есть аккаунты, показываем их
-        text = "👤 Мои аккаунты:\n\n"
-        for i, account in enumerate(accounts, 1):
-            text += f"{i}. {account.name} ({account.phone})\n"
-        
-        # Создаем клавиатуру с кнопками для каждого аккаунта
-        from aiogram.utils.keyboard import InlineKeyboardBuilder
-        from aiogram.types import InlineKeyboardButton
-        
-        builder = InlineKeyboardBuilder()
-        for account in accounts:
+        async with get_async_db() as db:
+            result = await db.execute(
+                select(Account).filter(Account.is_active == True)
+            )
+            accounts = result.scalars().all()
+
+            if not accounts:
+                text = "👤 Мои аккаунты\n\nУ вас нет добавленных аккаунтов."
+                await callback.message.edit_text(text, reply_markup=get_back_keyboard())
+                await callback.answer()
+                return
+
+            # Если есть аккаунты, показываем их
+            text = "👤 Мои аккаунты:\n\n"
+            for i, account in enumerate(accounts, 1):
+                text += f"{i}. {account.name} ({account.phone})\n"
+
+            # Создаем клавиатуру с кнопками для каждого аккаунта
+            from aiogram.utils.keyboard import InlineKeyboardBuilder
+            from aiogram.types import InlineKeyboardButton
+
+            builder = InlineKeyboardBuilder()
+            for account in accounts:
+                builder.add(InlineKeyboardButton(
+                    text=f"👤 {account.name}",
+                    callback_data=f"account_menu:{account.id}"
+                ))
             builder.add(InlineKeyboardButton(
-                text=f"👤 {account.name}",
-                callback_data=f"account_menu:{account.id}"
+                text="⬅️ Назад",
+                callback_data="back_to_main"
             ))
-        builder.add(InlineKeyboardButton(
-            text="⬅️ Назад",
-            callback_data="back_to_main"
-        ))
-        builder.adjust(1)
-        
-        await callback.message.edit_text(text, reply_markup=builder.as_markup())
-        
+            builder.adjust(1)
+
+            await callback.message.edit_text(text, reply_markup=builder.as_markup())
+
     except Exception as e:
         await callback.answer(f"❌ Ошибка БД: {str(e)}", show_alert=True)
-    finally:
-        db.close()
     
     await callback.answer()
 
@@ -163,36 +166,37 @@ async def account_menu(callback: CallbackQuery):
     """Меню конкретного аккаунта"""
     account_id = int(callback.data.split(":")[1])
     
-    db = SessionLocal()
     try:
-        account = db.query(Account).filter(Account.id == account_id).first()
-        if not account:
-            await callback.answer("❌ Аккаунт не найден")
-            return
-        
+        async with get_async_db() as db:
+            # Аккаунт
+            acc_res = await db.execute(select(Account).filter(Account.id == account_id))
+            account = acc_res.scalar_one_or_none()
+            if not account:
+                await callback.answer("❌ Аккаунт не найден")
+                return
 
-        # Получаем информацию о группах
-        groups = db.query(Group).filter(Group.account_id == account_id).all()
-        groups_text = f"У пользователя {len(groups)} групп." if groups else "У пользователя нет групп."
-        
-        # Получаем статус рассылки
-        from database.models import Mailing
-        active_mailings = db.query(Mailing).filter(
-            Mailing.account_id == account_id,
-            Mailing.is_active == True
-        ).count()
-        
-        text = f"📱 Аккаунт: {account.name[:20]}...\n\n"
-        text += f"📊 Рассылка: {'🟢 ВКЛ' if active_mailings > 0 else '🔴 ВЫКЛ'}\n"
-        text += f"📱 Номер: {account.phone}\n"
-        text += f"📋 Групп: {len(groups)}"
-        
-        await callback.message.edit_text(text, reply_markup=get_account_menu_keyboard(account_id))
-        
+            # Группы аккаунта
+            groups_res = await db.execute(select(Group).filter(Group.account_id == account_id))
+            groups = groups_res.scalars().all()
+
+            # Статус активных рассылок
+            active_cnt_res = await db.execute(
+                select(func.count()).select_from(Mailing).filter(
+                    Mailing.account_id == account_id,
+                    Mailing.is_active == True
+                )
+            )
+            active_mailings = active_cnt_res.scalar_one() or 0
+
+            text = f"📱 Аккаунт: {account.name[:20]}...\n\n"
+            text += f"📊 Рассылка: {'🟢 ВКЛ' if active_mailings > 0 else '🔴 ВЫКЛ'}\n"
+            text += f"📱 Номер: {account.phone}\n"
+            text += f"📋 Групп: {len(groups)}"
+
+            await callback.message.edit_text(text, reply_markup=get_account_menu_keyboard(account_id))
+    
     except Exception as e:
         await callback.answer("❌ Ошибка БД", show_alert=True)
-    finally:
-        db.close()
     
     await callback.answer()
 

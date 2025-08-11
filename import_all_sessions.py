@@ -8,7 +8,7 @@ import os
 import asyncio
 from telethon import TelegramClient
 from database.models import Account
-from database.database import get_db
+from database.database import next_get_db
 from config import TELEGRAM_API_ID, TELEGRAM_API_HASH
 import logging
 
@@ -30,7 +30,7 @@ async def import_session_to_db(session_file):
             me = await client.get_me()
             
             # Проверяем, есть ли уже такой аккаунт в БД
-            with next(get_db()) as db:
+            with next_get_db() as db:
                 existing_account = db.query(Account).filter(Account.tg_id == str(me.id)).first()
                 
                 if not existing_account:
@@ -84,7 +84,7 @@ async def import_all_sessions():
     
     # Показываем все аккаунты в БД
     logger.info("\n📊 Все аккаунты в базе данных:")
-    with next(get_db()) as db:
+    with next_get_db() as db:
         accounts = db.query(Account).all()
         for account in accounts:
             logger.info(f"  • {account.name} ({account.phone}) - TG ID: {account.tg_id}")
